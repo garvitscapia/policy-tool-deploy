@@ -117,6 +117,21 @@ body {
 }
 .btn-clear:hover { border-color: var(--text-secondary); color: var(--text-primary); }
 
+.btn-copy {
+  background: transparent;
+  color: var(--text-secondary);
+  border: 1.5px solid var(--border-light);
+  padding: 10px 20px;
+  border-radius: var(--radius-md);
+  font-size: 13px;
+  cursor: pointer;
+  transition: all 0.2s;
+  display: none;
+}
+.btn-copy:hover { border-color: var(--accent-blue); color: var(--accent-blue); }
+.btn-copy.visible { display: inline-flex; align-items: center; gap: 6px; }
+.btn-copy.copied { border-color: var(--standard-green); color: var(--standard-green); }
+
 .spinner {
   display: none;
   width: 16px; height: 16px;
@@ -380,6 +395,7 @@ Passport, Driving License, Aadhar and Govt. ID are accepted as ID proof(s)."></t
         <div class="spinner" id="btnSpinner"></div>
       </button>
       <button class="btn-clear" onclick="clearAll()">Clear</button>
+      <button class="btn-copy" id="btnCopy" onclick="copyAsText()">Copy Output</button>
     </div>
     <div class="error-box" id="errorBox"><span id="errorMessage"></span></div>
   </div>
@@ -534,6 +550,8 @@ Return ONLY a JSON object with a "policies" key containing an array. Each item:
 }
 
 If the input text is empty or contains no extractable policies, return: {"policies": []}`;
+
+let lastPolicies = [];
 
 const CATEGORY_CONFIG = {
   // Critical
@@ -753,6 +771,9 @@ function renderOutput(policyText, policies, elapsed) {
   }
   document.getElementById('extractedPanel').innerHTML = bHtml;
   document.getElementById('outputSection').classList.add('visible');
+
+  lastPolicies = policies;
+  document.getElementById('btnCopy').classList.add('visible');
 }
 
 function renderPolicyCard(p, sensitivity) {
@@ -808,10 +829,74 @@ function hideOutput() {
   document.getElementById('outputSection').classList.remove('visible');
   document.getElementById('statsBar').classList.remove('visible');
 }
+function copyAsText() {
+  if (!lastPolicies.length) return;
+
+  const criticalOrder = [
+    'couple_restriction', 'local_id_restriction', 'mandatory_charges',
+    'age_restriction', 'nationality_restriction', 'facility_closure'
+  ];
+  const criticals = lastPolicies.filter(p => p.sensitivity === 'critical').sort((a, b) => {
+    const aIdx = criticalOrder.indexOf(a.category); const bIdx = criticalOrder.indexOf(b.category);
+    return (aIdx === -1 ? 999 : aIdx) - (bIdx === -1 ? 999 : bIdx);
+  });
+  const standards = lastPolicies.filter(p => p.sensitivity !== 'critical');
+
+  const categoryOrder = [
+    'guest_profile', 'checkin_checkout', 'id_documentation', 'child_policy', 'extra_bed',
+    'food_beverage', 'smoking_policy', 'pet_policy', 'security_deposit',
+    'payment_methods', 'cancellation_refund', 'outside_visitors', 'damage_policy',
+    'long_stay', 'party_event_policy', 'accessibility', 'safety_information',
+    'property_rules', 'others'
+  ];
+
+  let text = '';
+
+  if (criticals.length > 0) {
+    text += '⚠️ CRITICAL POLICIES\n';
+    text += '─'.repeat(40) + '\n';
+    criticals.forEach(p => {
+      const cat = CATEGORY_CONFIG[p.category] || CATEGORY_CONFIG.others;
+      text += `${cat.emoji} [${cat.label}] ${p.display_text}\n`;
+    });
+    text += '\n';
+  }
+
+  const standardsByCategory = {};
+  standards.forEach(p => {
+    const cat = p.category || 'others';
+    if (!standardsByCategory[cat]) standardsByCategory[cat] = [];
+    standardsByCategory[cat].push(p);
+  });
+
+  const allCats = [...categoryOrder, ...Object.keys(standardsByCategory).filter(k => !categoryOrder.includes(k))];
+
+  if (standards.length > 0) {
+    text += 'STANDARD POLICIES\n';
+    text += '─'.repeat(40) + '\n';
+    allCats.forEach(catKey => {
+      const items = standardsByCategory[catKey];
+      if (!items || items.length === 0) return;
+      const catConfig = CATEGORY_CONFIG[catKey] || CATEGORY_CONFIG.others;
+      text += `\n${catConfig.previewLabel}\n`;
+      items.forEach(p => { text += `  • ${p.display_text}\n`; });
+    });
+  }
+
+  navigator.clipboard.writeText(text.trim()).then(() => {
+    const btn = document.getElementById('btnCopy');
+    btn.classList.add('copied');
+    btn.textContent = 'Copied!';
+    setTimeout(() => { btn.classList.remove('copied'); btn.textContent = 'Copy Output'; }, 2000);
+  });
+}
+
 function clearAll() {
   document.getElementById('policyText').value = '';
   hideError();
   hideOutput();
+  lastPolicies = [];
+  document.getElementById('btnCopy').classList.remove('visible');
 }
 </script>
 </body>
