@@ -618,7 +618,7 @@ async function processPolicy() {
 
   try {
     const maxRetries = 3;
-    let data;
+    let responseText = '';
     for (let attempt = 1; attempt <= maxRetries; attempt++) {
       const response = await fetch('https://api.anthropic.com/v1/messages', {
         method: 'POST',
@@ -629,9 +629,10 @@ async function processPolicy() {
           'anthropic-dangerous-direct-browser-access': 'true'
         },
         body: JSON.stringify({
-          model: 'claude-sonnet-4-20250514',
+          model: 'claude-haiku-4-20250414',
           max_tokens: 4096,
           temperature: 0.2,
+          stream: true,
           system: SYSTEM_PROMPT,
           messages: [{ role: 'user', content: 'Policy text:\n"""' + policyText + '"""' }]
         })
@@ -652,10 +653,32 @@ async function processPolicy() {
         throw new Error(errBody.error?.message || `API error: ${response.status}`);
       }
 
-      data = await response.json();
+      // Stream the response
+      const reader = response.body.getReader();
+      const decoder = new TextDecoder();
+      responseText = '';
+      let buffer = '';
+
+      while (true) {
+        const { done, value } = await reader.read();
+        if (done) break;
+        buffer += decoder.decode(value, { stream: true });
+        const lines = buffer.split('\n');
+        buffer = lines.pop();
+        for (const line of lines) {
+          if (!line.startsWith('data: ')) continue;
+          const jsonStr = line.slice(6);
+          if (jsonStr === '[DONE]') continue;
+          try {
+            const event = JSON.parse(jsonStr);
+            if (event.type === 'content_block_delta' && event.delta?.text) {
+              responseText += event.delta.text;
+            }
+          } catch {}
+        }
+      }
       break;
     }
-    let responseText = data.content[0].text;
 
     // Strip markdown code fences if present
     let cleaned = responseText.trim();
